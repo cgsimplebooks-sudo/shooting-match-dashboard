@@ -106,6 +106,47 @@ const ComponentFunction = function() {
   const useTheme = function() { return useContext(ThemeContext); };
   // @end:ThemeContext
 
+  // @section:ParticipantsContext @depends:[Firebase-utils]
+  const ParticipantsContext = React.createContext();
+  const ParticipantsProvider = function(props) {
+    const participantsState = useState([]);
+    const participants = participantsState[0];
+    const setParticipants = participantsState[1];
+    
+    const firebaseSyncState = useState(true);
+    const isFirebaseSyncing = firebaseSyncState[0];
+    const setFirebaseSyncing = firebaseSyncState[1];
+    
+    useEffect(function() {
+      firebaseUtils.fetchParticipants().then(function(data) {
+        if (data) {
+          var participantArray = Array.isArray(data) ? data : [];
+          setParticipants(participantArray);
+        }
+        setFirebaseSyncing(false);
+      });
+    }, []);
+    
+    useEffect(function() {
+      if (!isFirebaseSyncing && participants.length >= 0) {
+        firebaseUtils.saveParticipants(participants);
+      }
+    }, [participants]);
+    
+    const value = useMemo(function() {
+      return {
+        participants: participants,
+        setParticipants: setParticipants,
+        isFirebaseSyncing: isFirebaseSyncing
+      };
+    }, [participants, isFirebaseSyncing]);
+    
+    return React.createElement(ParticipantsContext.Provider, { value: value }, props.children);
+  };
+  
+  const useParticipants = function() { return useContext(ParticipantsContext); };
+  // @end:ParticipantsContext
+
   // @section:CategoryManagement-state @depends:[ThemeContext]
   const useCategoryManagementState = function() {
     const categoriesState = useState([
@@ -183,21 +224,14 @@ const ComponentFunction = function() {
   };
   // @end:EventManagement-state
 
-  // @section:HomeScreen-state @depends:[ThemeContext,EventManagement-state,CategoryManagement-state,Firebase-utils]
+  // @section:HomeScreen-state @depends:[ThemeContext,EventManagement-state,CategoryManagement-state,ParticipantsContext]
   const useHomeScreenState = function() {
     const themeContext = useTheme();
     const theme = themeContext.theme;
     
     const eventState = useEventManagementState();
     const categoryState = useCategoryManagementState();
-    
-    const participantsState = useState([]);
-    const participants = participantsState[0];
-    const setParticipants = participantsState[1];
-    
-    const firebaseSyncState = useState(true);
-    const isFirebaseSyncing = firebaseSyncState[0];
-    const setFirebaseSyncing = firebaseSyncState[1];
+    const participantsContext = useParticipants();
     
     const showAddModalState = useState(false);
     const showAddModal = showAddModalState[0];
@@ -247,24 +281,8 @@ const ComponentFunction = function() {
     const selectedPaymentMethod = selectedPaymentMethodState[0];
     const setSelectedPaymentMethod = selectedPaymentMethodState[1];
     
-    useEffect(function() {
-      firebaseUtils.fetchParticipants().then(function(data) {
-        if (data) {
-          var participantArray = Array.isArray(data) ? data : [];
-          setParticipants(participantArray);
-        }
-        setFirebaseSyncing(false);
-      });
-    }, []);
-    
-    useEffect(function() {
-      if (!isFirebaseSyncing && participants.length >= 0) {
-        firebaseUtils.saveParticipants(participants);
-      }
-    }, [participants]);
-    
     const filteredParticipants = useMemo(function() {
-      var matching = participants.filter(function(p) {
+      var matching = participantsContext.participants.filter(function(p) {
         var categoryMatch = p.categories && p.categories.indexOf(selectedCategory) > -1;
         var eventMatch = p.events && p.events.some(function(e) { return e.eventId === selectedEventId; });
         return categoryMatch && eventMatch;
@@ -278,13 +296,13 @@ const ComponentFunction = function() {
         };
       }).sort(function(a, b) { return b.score - a.score; });
       return matching;
-    }, [participants, selectedEventId, selectedCategory]);
+    }, [participantsContext.participants, selectedEventId, selectedCategory]);
     
     return {
       theme: theme,
-      participants: participants,
-      setParticipants: setParticipants,
-      isFirebaseSyncing: isFirebaseSyncing,
+      participants: participantsContext.participants,
+      setParticipants: participantsContext.setParticipants,
+      isFirebaseSyncing: participantsContext.isFirebaseSyncing,
       showAddModal: showAddModal,
       setShowAddModal: setShowAddModal,
       showUpdateModal: showUpdateModal,
@@ -887,18 +905,12 @@ const ComponentFunction = function() {
   };
   // @end:HomeScreen
 
-  // @section:DashboardScreen-state @depends:[ThemeContext,Firebase-utils]
+  // @section:DashboardScreen-state @depends:[ThemeContext,ParticipantsContext,Firebase-utils]
   const useDashboardScreenState = function() {
     var themeContext = useTheme();
     var theme = themeContext.theme;
     
-    var participantsState = useState([]);
-    var participants = participantsState[0];
-    var setParticipants = participantsState[1];
-    
-    var loadingState = useState(true);
-    var isLoading = loadingState[0];
-    var setIsLoading = loadingState[1];
+    var participantsContext = useParticipants();
     
     var selectedEventState = useState('event-men');
     var selectedEvent = selectedEventState[0];
@@ -909,27 +921,18 @@ const ComponentFunction = function() {
         firebaseUtils.fetchParticipants().then(function(data) {
           if (data) {
             var participantArray = Array.isArray(data) ? data : [];
-            setParticipants(participantArray);
+            participantsContext.setParticipants(participantArray);
           }
-          setIsLoading(false);
         });
       }, 2000);
-      
-      firebaseUtils.fetchParticipants().then(function(data) {
-        if (data) {
-          var participantArray = Array.isArray(data) ? data : [];
-          setParticipants(participantArray);
-        }
-        setIsLoading(false);
-      });
       
       return function() { clearInterval(fetchInterval); };
     }, []);
     
     return {
       theme: theme,
-      participants: participants,
-      isLoading: isLoading,
+      participants: participantsContext.participants,
+      isLoading: participantsContext.isFirebaseSyncing,
       selectedEvent: selectedEvent,
       setSelectedEvent: setSelectedEvent
     };
@@ -1082,13 +1085,12 @@ const ComponentFunction = function() {
   };
   // @end:DashboardScreen
 
-  // @section:RegistrationScreen-state @depends:[ThemeContext]
+  // @section:RegistrationScreen-state @depends:[ThemeContext,ParticipantsContext]
   const useRegistrationScreenState = function() {
     var themeContext = useTheme();
     var theme = themeContext.theme;
     
-    var participants = useState([])[0];
-    var setParticipants = useState([])[1];
+    var participantsContext = useParticipants();
     
     var events = useState([
       { id: 'event-men', name: 'Men' },
@@ -1135,8 +1137,7 @@ const ComponentFunction = function() {
     
     return {
       theme: theme,
-      participants: participants,
-      setParticipants: setParticipants,
+      participants: participantsContext.participants,
       events: events,
       categories: categories
     };
@@ -1180,11 +1181,6 @@ const ComponentFunction = function() {
   const RegistrationScreen = function(props) {
     var state = useRegistrationScreenState();
     var theme = state.theme;
-    var participants = useState([])[0];
-    var events = useState([
-      { id: 'event-men', name: 'Men' },
-      { id: 'event-women', name: 'Women' }
-    ])[0];
     
     return React.createElement(View, { 
       style: [styles.container, { backgroundColor: theme.colors.background }], 
@@ -1208,14 +1204,14 @@ const ComponentFunction = function() {
         contentContainerStyle: { paddingBottom: Platform.OS === 'web' ? 90 : 100 },
         componentId: 'registration-scroll'
       },
-        renderRegistrationCategoryStats(state.categories, participants, events, theme),
+        renderRegistrationCategoryStats(state.categories, state.participants, state.events, theme),
         React.createElement(View, { style: styles.sectionContainer, componentId: 'registration-events-section' },
           React.createElement(Text, { 
             style: [styles.sectionTitle, { color: theme.colors.textPrimary }], 
             componentId: 'events-list-title' 
           }, 'Available Events'),
-          events.map(function(event) {
-            var participantCount = participants.filter(function(p) {
+          state.events.map(function(event) {
+            var participantCount = state.participants.filter(function(p) {
               return p.events && p.events.some(function(e) { return e.eventId === event.id; });
             }).length;
             
@@ -1247,14 +1243,14 @@ const ComponentFunction = function() {
             style: [styles.sectionTitle, { color: theme.colors.textPrimary }], 
             componentId: 'participants-list-title' 
           }, 'Registered Participants'),
-          participants.length === 0 ?
+          state.participants.length === 0 ?
             React.createElement(View, { style: styles.emptyStateSmall, componentId: 'registration-empty' },
               React.createElement(Text, { 
                 style: [styles.emptyStateSubtitle, { color: theme.colors.textSecondary }], 
                 componentId: 'registration-empty-text' 
               }, 'No participants registered yet. Add participants from the leaderboard!')
             ) :
-            participants.map(function(participant) {
+            state.participants.map(function(participant) {
               var categoryNames = participant.categories && participant.categories.length > 0 ? 'Multi-Discipline' : 'N/A';
               return React.createElement(View, {
                 key: participant.id,
@@ -1271,7 +1267,7 @@ const ComponentFunction = function() {
                 }, categoryNames),
                 React.createElement(View, { style: styles.participantRegEvents, componentId: 'participant-reg-events-' + participant.id },
                   participant.events && participant.events.map(function(eventData) {
-                    var event = events.find(function(e) { return e.id === eventData.eventId; });
+                    var event = state.events.find(function(e) { return e.id === eventData.eventId; });
                     return React.createElement(View, {
                       key: eventData.eventId,
                       style: [styles.eventBadge, { backgroundColor: theme.colors.primary }],
@@ -2032,11 +2028,13 @@ const ComponentFunction = function() {
   });
   // @end:styles
 
-  // @section:return @depends:[ThemeProvider,TabNavigator]
+  // @section:return @depends:[ThemeProvider,ParticipantsProvider,TabNavigator]
   return React.createElement(ThemeProvider, null,
-    React.createElement(View, { style: { flex: 1, width: '100%', height: '100%' } },
-      React.createElement(StatusBar, { barStyle: 'dark-content' }),
-      React.createElement(TabNavigator)
+    React.createElement(ParticipantsProvider, null,
+      React.createElement(View, { style: { flex: 1, width: '100%', height: '100%' } },
+        React.createElement(StatusBar, { barStyle: 'dark-content' }),
+        React.createElement(TabNavigator)
+      )
     )
   );
   // @end:return
