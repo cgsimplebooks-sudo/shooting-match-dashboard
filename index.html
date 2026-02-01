@@ -1,0 +1,2044 @@
+const ComponentFunction = function() {
+  // @section:imports @depends:[]
+  const React = require('react');
+  const { useState, useEffect, useContext, useMemo, useCallback } = React;
+  const { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Modal, Alert, Platform, StatusBar, ActivityIndicator, KeyboardAvoidingView, FlatList } = require('react-native');
+  const { MaterialIcons } = require('@expo/vector-icons');
+  const { createBottomTabNavigator } = require('@react-navigation/bottom-tabs');
+  // @end:imports
+
+  // @section:theme @depends:[]
+  const storageStrategy = 'local';
+  const primaryColor = '#2563EB';
+  const accentColor = '#3B82F6';
+  const backgroundColor = '#F8FAFC';
+  const cardColor = '#FFFFFF';
+  const textPrimary = '#1E293B';
+  const textSecondary = '#64748B';
+  const designStyle = 'modern';
+  // @end:theme
+
+  // @section:Firebase-utils @depends:[]
+  const firebaseUtils = {
+    dbUrl: 'https://shooting-match-4fe80-default-rtdb.firebaseio.com',
+    
+    fetchParticipants: function() {
+      return fetch(firebaseUtils.dbUrl + '/participants.json')
+        .then(function(response) { return response.json(); })
+        .then(function(data) { return data || []; })
+        .catch(function(error) { console.error('Firebase fetch error:', error); return null; });
+    },
+    
+    saveParticipants: function(participants) {
+      var firebaseParticipants = participants.map(function(p) {
+        var copy = Object.assign({}, p);
+        delete copy.paymentMethod;
+        return copy;
+      });
+      return fetch(firebaseUtils.dbUrl + '/participants.json', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(firebaseParticipants)
+      })
+      .catch(function(error) { console.error('Firebase save error:', error); });
+    }
+  };
+  // @end:Firebase-utils
+
+  // @section:navigation-setup @depends:[]
+  const Tab = createBottomTabNavigator();
+  // @end:navigation-setup
+
+  // @section:ThemeContext @depends:[theme]
+  const ThemeContext = React.createContext();
+  const ThemeProvider = function(props) {
+    const darkModeState = useState(false);
+    const darkMode = darkModeState[0];
+    const setDarkMode = darkModeState[1];
+    
+    const lightTheme = useMemo(function() {
+      return {
+        colors: {
+          primary: primaryColor,
+          accent: accentColor,
+          background: backgroundColor,
+          card: cardColor,
+          textPrimary: textPrimary,
+          textSecondary: textSecondary,
+          border: '#E2E8F0',
+          success: '#10B981',
+          error: '#EF4444',
+          warning: '#F59E0B'
+        }
+      };
+    }, []);
+    
+    const darkTheme = useMemo(function() {
+      return {
+        colors: {
+          primary: primaryColor,
+          accent: accentColor,
+          background: '#0F172A',
+          card: '#1E293B',
+          textPrimary: '#F1F5F9',
+          textSecondary: '#CBD5E1',
+          border: '#334155',
+          success: '#10B981',
+          error: '#EF4444',
+          warning: '#F59E0B'
+        }
+      };
+    }, []);
+    
+    const theme = darkMode ? darkTheme : lightTheme;
+    
+    const toggleDarkMode = useCallback(function() {
+      setDarkMode(function(prev) { return !prev; });
+    }, []);
+    
+    const value = useMemo(function() {
+      return { theme: theme, darkMode: darkMode, toggleDarkMode: toggleDarkMode, designStyle: designStyle };
+    }, [theme, darkMode, toggleDarkMode]);
+    
+    return React.createElement(ThemeContext.Provider, { value: value }, props.children);
+  };
+  
+  const useTheme = function() { return useContext(ThemeContext); };
+  // @end:ThemeContext
+
+  // @section:CategoryManagement-state @depends:[ThemeContext]
+  const useCategoryManagementState = function() {
+    const categoriesState = useState([
+      {
+        id: 'discipline-22-open',
+        name: '.22 Open',
+        subcategories: [
+          { id: 'discipline-22-open-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-22-scope',
+        name: '.22 Scope',
+        subcategories: [
+          { id: 'discipline-22-scope-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-hp-open',
+        name: 'HP Open',
+        subcategories: [
+          { id: 'discipline-hp-open-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-hp-scope',
+        name: 'HP Scope',
+        subcategories: [
+          { id: 'discipline-hp-scope-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-long-range',
+        name: 'Long Range',
+        subcategories: [
+          { id: 'discipline-long-range-std', name: 'Standard' }
+        ]
+      }
+    ]);
+    const categories = categoriesState[0];
+    const setCategories = categoriesState[1];
+    
+    return {
+      categories: categories,
+      setCategories: setCategories
+    };
+  };
+  // @end:CategoryManagement-state
+
+  // @section:EventManagement-state @depends:[ThemeContext]
+  const useEventManagementState = function() {
+    const eventsState = useState([
+      { id: 'event-men', name: 'Men' },
+      { id: 'event-women', name: 'Women' }
+    ]);
+    const events = eventsState[0];
+    const setEvents = eventsState[1];
+    
+    const selectedEventIdState = useState('event-men');
+    const selectedEventId = selectedEventIdState[0];
+    const setSelectedEventId = selectedEventIdState[1];
+    
+    const newEventNameState = useState('');
+    const newEventName = newEventNameState[0];
+    const setNewEventName = newEventNameState[1];
+    
+    return {
+      events: events,
+      setEvents: setEvents,
+      selectedEventId: selectedEventId,
+      setSelectedEventId: setSelectedEventId,
+      newEventName: newEventName,
+      setNewEventName: setNewEventName
+    };
+  };
+  // @end:EventManagement-state
+
+  // @section:HomeScreen-state @depends:[ThemeContext,EventManagement-state,CategoryManagement-state,Firebase-utils]
+  const useHomeScreenState = function() {
+    const themeContext = useTheme();
+    const theme = themeContext.theme;
+    
+    const eventState = useEventManagementState();
+    const categoryState = useCategoryManagementState();
+    
+    const participantsState = useState([]);
+    const participants = participantsState[0];
+    const setParticipants = participantsState[1];
+    
+    const firebaseSyncState = useState(true);
+    const isFirebaseSyncing = firebaseSyncState[0];
+    const setFirebaseSyncing = firebaseSyncState[1];
+    
+    const showAddModalState = useState(false);
+    const showAddModal = showAddModalState[0];
+    const setShowAddModal = showAddModalState[1];
+    
+    const showUpdateModalState = useState(false);
+    const showUpdateModal = showUpdateModalState[0];
+    const setShowUpdateModal = showUpdateModalState[1];
+    
+    const selectedParticipantState = useState(null);
+    const selectedParticipant = selectedParticipantState[0];
+    const setSelectedParticipant = selectedParticipantState[1];
+    
+    const newParticipantNameState = useState('');
+    const newParticipantName = newParticipantNameState[0];
+    const setNewParticipantName = newParticipantNameState[1];
+    
+    const newScoreState = useState('');
+    const newScore = newScoreState[0];
+    const setNewScore = newScoreState[1];
+    
+    const updateScoreState = useState('');
+    const updateScore = updateScoreState[0];
+    const setUpdateScore = updateScoreState[1];
+    
+    const selectedEventIdState = useState('event-men');
+    const selectedEventId = selectedEventIdState[0];
+    const setSelectedEventId = selectedEventIdState[1];
+    
+    const selectedEventsForParticipantState = useState([]);
+    const selectedEventsForParticipant = selectedEventsForParticipantState[0];
+    const setSelectedEventsForParticipant = selectedEventsForParticipantState[1];
+    
+    const selectedCategoryState = useState('discipline-22-open');
+    const selectedCategory = selectedCategoryState[0];
+    const setSelectedCategory = selectedCategoryState[1];
+    
+    const selectedSubcategoryState = useState('discipline-22-open-std');
+    const selectedSubcategory = selectedSubcategoryState[0];
+    const setSelectedSubcategory = selectedSubcategoryState[1];
+    
+    const selectedCategoriesForParticipantState = useState([]);
+    const selectedCategoriesForParticipant = selectedCategoriesForParticipantState[0];
+    const setSelectedCategoriesForParticipant = selectedCategoriesForParticipantState[1];
+    
+    const selectedPaymentMethodState = useState('Cash');
+    const selectedPaymentMethod = selectedPaymentMethodState[0];
+    const setSelectedPaymentMethod = selectedPaymentMethodState[1];
+    
+    useEffect(function() {
+      firebaseUtils.fetchParticipants().then(function(data) {
+        if (data) {
+          var participantArray = Array.isArray(data) ? data : [];
+          setParticipants(participantArray);
+        }
+        setFirebaseSyncing(false);
+      });
+    }, []);
+    
+    useEffect(function() {
+      if (!isFirebaseSyncing && participants.length >= 0) {
+        firebaseUtils.saveParticipants(participants);
+      }
+    }, [participants]);
+    
+    const filteredParticipants = useMemo(function() {
+      var matching = participants.filter(function(p) {
+        var categoryMatch = p.categories && p.categories.indexOf(selectedCategory) > -1;
+        var eventMatch = p.events && p.events.some(function(e) { return e.eventId === selectedEventId; });
+        return categoryMatch && eventMatch;
+      }).map(function(p) {
+        var eventData = p.events.find(function(e) { return e.eventId === selectedEventId; });
+        return {
+          id: p.id,
+          name: p.name,
+          score: eventData ? eventData.score : 0,
+          timestamp: p.timestamp
+        };
+      }).sort(function(a, b) { return b.score - a.score; });
+      return matching;
+    }, [participants, selectedEventId, selectedCategory]);
+    
+    return {
+      theme: theme,
+      participants: participants,
+      setParticipants: setParticipants,
+      isFirebaseSyncing: isFirebaseSyncing,
+      showAddModal: showAddModal,
+      setShowAddModal: setShowAddModal,
+      showUpdateModal: showUpdateModal,
+      setShowUpdateModal: setShowUpdateModal,
+      selectedParticipant: selectedParticipant,
+      setSelectedParticipant: setSelectedParticipant,
+      newParticipantName: newParticipantName,
+      setNewParticipantName: setNewParticipantName,
+      newScore: newScore,
+      setNewScore: setNewScore,
+      updateScore: updateScore,
+      setUpdateScore: setUpdateScore,
+      selectedEventId: selectedEventId,
+      setSelectedEventId: setSelectedEventId,
+      filteredParticipants: filteredParticipants,
+      events: eventState.events,
+      setEvents: eventState.setEvents,
+      selectedEventsForParticipant: selectedEventsForParticipant,
+      setSelectedEventsForParticipant: setSelectedEventsForParticipant,
+      categories: categoryState.categories,
+      selectedCategory: selectedCategory,
+      setSelectedCategory: setSelectedCategory,
+      selectedSubcategory: selectedSubcategory,
+      setSelectedSubcategory: setSelectedSubcategory,
+      selectedCategoriesForParticipant: selectedCategoriesForParticipant,
+      setSelectedCategoriesForParticipant: setSelectedCategoriesForParticipant,
+      selectedPaymentMethod: selectedPaymentMethod,
+      setSelectedPaymentMethod: setSelectedPaymentMethod
+    };
+  };
+  // @end:HomeScreen-state
+
+  // @section:HomeScreen-handlers @depends:[HomeScreen-state]
+  const homeScreenHandlers = {
+    addParticipant: function(state) {
+      if (!state.newParticipantName.trim()) {
+        Platform.OS === 'web' ? window.alert('Please enter a participant name') : Alert.alert('Error', 'Please enter a participant name');
+        return;
+      }
+      
+      if (state.selectedEventsForParticipant.length === 0) {
+        Platform.OS === 'web' ? window.alert('Please select at least one event') : Alert.alert('Error', 'Please select at least one event');
+        return;
+      }
+      
+      if (state.selectedCategoriesForParticipant.length === 0) {
+        Platform.OS === 'web' ? window.alert('Please select at least one discipline') : Alert.alert('Error', 'Please select at least one discipline');
+        return;
+      }
+      
+      var score = parseInt(state.newScore) || 0;
+      var newParticipant = {
+        id: Date.now().toString(),
+        name: state.newParticipantName.trim(),
+        timestamp: new Date().toISOString(),
+        categories: state.selectedCategoriesForParticipant,
+        events: state.selectedEventsForParticipant.map(function(eventId) {
+          return { eventId: eventId, score: score };
+        }),
+        paymentMethod: state.selectedPaymentMethod
+      };
+      
+      state.setParticipants(function(prev) {
+        return prev.concat([newParticipant]);
+      });
+      
+      state.setNewParticipantName('');
+      state.setNewScore('');
+      state.setSelectedEventsForParticipant([]);
+      state.setSelectedCategoriesForParticipant([]);
+      state.setShowAddModal(false);
+      
+      Platform.OS === 'web' ? window.alert('Participant added successfully!') : Alert.alert('Success', 'Participant added successfully!');
+    },
+    
+    openUpdateModal: function(state, participant) {
+      var eventData = participant.events.find(function(e) { return e.eventId === state.selectedEventId; });
+      state.setSelectedParticipant(participant);
+      state.setUpdateScore((eventData ? eventData.score : 0).toString());
+      state.setShowUpdateModal(true);
+    },
+    
+    updateParticipantScore: function(state) {
+      if (!state.selectedParticipant) return;
+      
+      var newScore = parseInt(state.updateScore);
+      if (isNaN(newScore)) {
+        Platform.OS === 'web' ? window.alert('Please enter a valid score') : Alert.alert('Error', 'Please enter a valid score');
+        return;
+      }
+      
+      state.setParticipants(function(prev) {
+        return prev.map(function(p) {
+          if (p.id === state.selectedParticipant.id) {
+            return {
+              id: p.id,
+              name: p.name,
+              timestamp: p.timestamp,
+              categories: p.categories,
+              events: p.events.map(function(e) {
+                if (e.eventId === state.selectedEventId) {
+                  return { eventId: e.eventId, score: newScore };
+                }
+                return e;
+              }),
+              paymentMethod: p.paymentMethod
+            };
+          }
+          return p;
+        });
+      });
+      
+      state.setShowUpdateModal(false);
+      state.setSelectedParticipant(null);
+      state.setUpdateScore('');
+      
+      Platform.OS === 'web' ? window.alert('Score updated successfully!') : Alert.alert('Success', 'Score updated successfully!');
+    },
+    
+    deleteParticipant: function(state, participantId) {
+      var action = function() {
+        state.setParticipants(function(prev) {
+          return prev.filter(function(p) { return p.id !== participantId; });
+        });
+        Platform.OS === 'web' ? window.alert('Participant removed') : Alert.alert('Success', 'Participant removed');
+      };
+      
+      if (Platform.OS === 'web') {
+        if (window.confirm('Are you sure you want to remove this participant?')) {
+          action();
+        }
+      } else {
+        Alert.alert('Confirm', 'Are you sure you want to remove this participant?', [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Remove', style: 'destructive', onPress: action }
+        ]);
+      }
+    }
+  };
+  // @end:HomeScreen-handlers
+
+  // @section:HomeScreen-EventSelector @depends:[styles]
+  const renderEventSelector = function(events, selectedEventId, onSelectEvent, theme) {
+    return React.createElement(View, {
+      style: [styles.eventSelectorContainer, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }],
+      componentId: 'event-selector-container'
+    },
+      React.createElement(Text, {
+        style: [styles.eventSelectorLabel, { color: theme.colors.textSecondary }],
+        componentId: 'event-selector-label'
+      }, 'Select Event:'),
+      React.createElement(ScrollView, {
+        horizontal: true,
+        showsHorizontalScrollIndicator: false,
+        style: styles.eventSelectorScroll,
+        componentId: 'event-selector-scroll'
+      },
+        events.map(function(event) {
+          var isSelected = event.id === selectedEventId;
+          return React.createElement(TouchableOpacity, {
+            key: event.id,
+            style: [
+              styles.eventTab,
+              {
+                backgroundColor: isSelected ? theme.colors.primary : theme.colors.background,
+                borderColor: isSelected ? theme.colors.primary : theme.colors.border
+              }
+            ],
+            onPress: function() { onSelectEvent(event.id); },
+            componentId: 'event-tab-' + event.id
+          },
+            React.createElement(Text, {
+              style: [
+                styles.eventTabText,
+                { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+              ]
+            }, event.name)
+          );
+        })
+      )
+    );
+  };
+  // @end:HomeScreen-EventSelector
+
+  // @section:HomeScreen-CategorySelector @depends:[styles]
+  const renderCategorySelector = function(categories, selectedCategory, onSelectCategory, theme) {
+    return React.createElement(View, {
+      style: [styles.categoryFiltersContainer, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }],
+      componentId: 'category-filters-container'
+    },
+      React.createElement(Text, {
+        style: [styles.categoryFilterLabel, { color: theme.colors.textSecondary }],
+        componentId: 'category-filter-label'
+      }, 'Discipline:'),
+      React.createElement(ScrollView, {
+        horizontal: true,
+        showsHorizontalScrollIndicator: false,
+        style: styles.categoryFiltersScroll,
+        componentId: 'category-filters-scroll'
+      },
+        categories.map(function(category) {
+          var isSelected = category.id === selectedCategory;
+          return React.createElement(TouchableOpacity, {
+            key: category.id,
+            style: [
+              styles.categoryTab,
+              {
+                backgroundColor: isSelected ? theme.colors.primary : theme.colors.background,
+                borderColor: isSelected ? theme.colors.primary : theme.colors.border
+              }
+            ],
+            onPress: function() { 
+              onSelectCategory(category.id);
+            },
+            componentId: 'category-tab-' + category.id
+          },
+            React.createElement(Text, {
+              style: [
+                styles.categoryTabText,
+                { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+              ]
+            }, category.name)
+          );
+        })
+      )
+    );
+  };
+  // @end:HomeScreen-CategorySelector
+
+  // @section:HomeScreen-ParticipantItem @depends:[styles]
+  const renderParticipantItem = function(participant, index, theme, onUpdate, onDelete) {
+    var isTopThree = index < 3;
+    var medalColors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+    var medalColor = isTopThree ? medalColors[index] : theme.colors.textSecondary;
+    
+    return React.createElement(View, {
+      key: participant.id,
+      style: [styles.participantCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+      componentId: 'participant-item-' + participant.id
+    },
+      React.createElement(View, { style: styles.participantHeader, componentId: 'participant-header-' + participant.id },
+        React.createElement(View, { style: styles.participantInfo, componentId: 'participant-info-' + participant.id },
+          React.createElement(View, { style: styles.rankContainer, componentId: 'participant-rank-' + participant.id },
+            isTopThree ? 
+              React.createElement(MaterialIcons, { name: 'emoji-events', size: 20, color: medalColor }) :
+              React.createElement(Text, { style: [styles.rankText, { color: theme.colors.textSecondary }] }, '#' + (index + 1))
+          ),
+          React.createElement(View, { style: styles.nameScoreContainer, componentId: 'participant-details-' + participant.id },
+            React.createElement(Text, { style: [styles.participantName, { color: theme.colors.textPrimary }], componentId: 'participant-name-' + participant.id }, participant.name),
+            React.createElement(Text, { style: [styles.participantScore, { color: theme.colors.primary }], componentId: 'participant-score-' + participant.id }, participant.score + ' pts')
+          )
+        ),
+        React.createElement(View, { style: styles.participantActions, componentId: 'participant-actions-' + participant.id },
+          React.createElement(TouchableOpacity, {
+            style: [styles.actionButton, { backgroundColor: theme.colors.primary }],
+            onPress: function() { onUpdate(participant); },
+            componentId: 'participant-update-' + participant.id
+          },
+            React.createElement(MaterialIcons, { name: 'edit', size: 16, color: '#FFFFFF' })
+          ),
+          React.createElement(TouchableOpacity, {
+            style: [styles.actionButton, { backgroundColor: theme.colors.error }],
+            onPress: function() { onDelete(participant.id); },
+            componentId: 'participant-delete-' + participant.id
+          },
+            React.createElement(MaterialIcons, { name: 'delete', size: 16, color: '#FFFFFF' })
+          )
+        )
+      )
+    );
+  };
+  // @end:HomeScreen-ParticipantItem
+
+  // @section:HomeScreen-AddModal @depends:[styles]
+  const renderAddParticipantModal = function(visible, onClose, state, onSubmit, theme) {
+    return React.createElement(Modal, {
+      visible: visible,
+      animationType: 'slide',
+      transparent: true,
+      onRequestClose: onClose
+    },
+      React.createElement(KeyboardAvoidingView, {
+        style: styles.modalOverlay,
+        behavior: Platform.OS === 'ios' ? 'padding' : (Platform.OS === 'web' ? undefined : 'height'),
+        componentId: 'add-modal-keyboard-avoiding'
+      },
+        React.createElement(View, { style: styles.modalContainer, componentId: 'add-modal-container' },
+          React.createElement(View, { style: [styles.modalContent, { backgroundColor: theme.colors.card }], componentId: 'add-modal-content' },
+            React.createElement(View, { style: styles.modalHeader, componentId: 'add-modal-header' },
+              React.createElement(Text, { style: [styles.modalTitle, { color: theme.colors.textPrimary }], componentId: 'add-modal-title' }, 'Add Participant'),
+              React.createElement(TouchableOpacity, {
+                onPress: onClose,
+                style: styles.closeButton,
+                componentId: 'add-modal-close'
+              },
+                React.createElement(MaterialIcons, { name: 'close', size: 24, color: theme.colors.textSecondary })
+              )
+            ),
+            React.createElement(ScrollView, { style: styles.formContainer, componentId: 'add-modal-form' },
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'add-name-label' }, 'Participant Name'),
+              React.createElement(TextInput, {
+                style: [styles.textInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.textPrimary }],
+                value: state.newParticipantName,
+                onChangeText: state.setNewParticipantName,
+                placeholder: 'Enter participant name',
+                placeholderTextColor: theme.colors.textSecondary,
+                componentId: 'add-name-input'
+              }),
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'add-score-label' }, 'Initial Score'),
+              React.createElement(TextInput, {
+                style: [styles.textInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.textPrimary }],
+                value: state.newScore,
+                onChangeText: state.setNewScore,
+                placeholder: '0',
+                placeholderTextColor: theme.colors.textSecondary,
+                keyboardType: 'numeric',
+                componentId: 'add-score-input'
+              }),
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'add-disciplines-label' }, 'Select Disciplines'),
+              React.createElement(View, {
+                style: styles.categoryButtonsRow,
+                componentId: 'add-modal-disciplines-buttons'
+              },
+                state.categories.map(function(category) {
+                  var isSelected = state.selectedCategoriesForParticipant.indexOf(category.id) > -1;
+                  return React.createElement(TouchableOpacity, {
+                    key: category.id,
+                    style: [
+                      styles.categoryButton,
+                      {
+                        backgroundColor: isSelected ? theme.colors.primary : theme.colors.background,
+                        borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                      }
+                    ],
+                    onPress: function() {
+                      if (isSelected) {
+                        state.setSelectedCategoriesForParticipant(state.selectedCategoriesForParticipant.filter(function(id) { return id !== category.id; }));
+                      } else {
+                        state.setSelectedCategoriesForParticipant(state.selectedCategoriesForParticipant.concat([category.id]));
+                      }
+                    },
+                    componentId: 'add-discipline-btn-' + category.id
+                  },
+                    React.createElement(Text, {
+                      style: [
+                        styles.categoryButtonText,
+                        { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+                      ]
+                    }, category.name)
+                  );
+                })
+              ),
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'add-payment-label' }, 'Payment Method'),
+              React.createElement(View, {
+                style: styles.paymentMethodContainer,
+                componentId: 'add-payment-buttons'
+              },
+                React.createElement(TouchableOpacity, {
+                  style: [
+                    styles.paymentButton,
+                    {
+                      backgroundColor: state.selectedPaymentMethod === 'Cash' ? theme.colors.primary : theme.colors.background,
+                      borderColor: state.selectedPaymentMethod === 'Cash' ? theme.colors.primary : theme.colors.border
+                    }
+                  ],
+                  onPress: function() { state.setSelectedPaymentMethod('Cash'); },
+                  componentId: 'payment-method-cash'
+                },
+                  React.createElement(Text, {
+                    style: [
+                      styles.paymentButtonText,
+                      { color: state.selectedPaymentMethod === 'Cash' ? '#FFFFFF' : theme.colors.textPrimary }
+                    ]
+                  }, 'Cash')
+                ),
+                React.createElement(TouchableOpacity, {
+                  style: [
+                    styles.paymentButton,
+                    {
+                      backgroundColor: state.selectedPaymentMethod === 'EMT' ? theme.colors.primary : theme.colors.background,
+                      borderColor: state.selectedPaymentMethod === 'EMT' ? theme.colors.primary : theme.colors.border
+                    }
+                  ],
+                  onPress: function() { state.setSelectedPaymentMethod('EMT'); },
+                  componentId: 'payment-method-emt'
+                },
+                  React.createElement(Text, {
+                    style: [
+                      styles.paymentButtonText,
+                      { color: state.selectedPaymentMethod === 'EMT' ? '#FFFFFF' : theme.colors.textPrimary }
+                    ]
+                  }, 'EMT')
+                )
+              ),
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'add-events-label' }, 'Select Events'),
+              state.events.map(function(event) {
+                var isSelected = state.selectedEventsForParticipant.indexOf(event.id) > -1;
+                return React.createElement(TouchableOpacity, {
+                  key: event.id,
+                  style: [styles.eventCheckbox, { borderColor: theme.colors.border, backgroundColor: isSelected ? theme.colors.primary : theme.colors.background }],
+                  onPress: function() {
+                    if (isSelected) {
+                      state.setSelectedEventsForParticipant(state.selectedEventsForParticipant.filter(function(id) { return id !== event.id; }));
+                    } else {
+                      state.setSelectedEventsForParticipant(state.selectedEventsForParticipant.concat([event.id]));
+                    }
+                  },
+                  componentId: 'add-event-checkbox-' + event.id
+                },
+                  React.createElement(View, { style: styles.checkboxIcon, componentId: 'add-event-checkbox-icon-' + event.id },
+                    isSelected && React.createElement(MaterialIcons, { name: 'check', size: 16, color: '#FFFFFF' })
+                  ),
+                  React.createElement(Text, { style: [styles.eventCheckboxText, { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }] }, event.name)
+                );
+              })
+            ),
+            React.createElement(View, { style: styles.modalActions, componentId: 'add-modal-actions' },
+              React.createElement(TouchableOpacity, {
+                style: [styles.button, styles.cancelButton, { borderColor: theme.colors.border }],
+                onPress: onClose,
+                componentId: 'add-modal-cancel'
+              },
+                React.createElement(Text, { style: [styles.buttonText, { color: theme.colors.textSecondary }] }, 'Cancel')
+              ),
+              React.createElement(TouchableOpacity, {
+                style: [styles.button, styles.primaryButton, { backgroundColor: theme.colors.primary }],
+                onPress: onSubmit,
+                componentId: 'add-modal-submit'
+              },
+                React.createElement(Text, { style: [styles.buttonText, { color: '#FFFFFF' }] }, 'Add Participant')
+              )
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:HomeScreen-AddModal
+
+  // @section:HomeScreen-UpdateModal @depends:[styles]
+  const renderUpdateScoreModal = function(visible, onClose, state, onSubmit, theme) {
+    if (!state.selectedParticipant) return null;
+    
+    return React.createElement(Modal, {
+      visible: visible,
+      animationType: 'slide',
+      transparent: true,
+      onRequestClose: onClose
+    },
+      React.createElement(KeyboardAvoidingView, {
+        style: styles.modalOverlay,
+        behavior: Platform.OS === 'ios' ? 'padding' : (Platform.OS === 'web' ? undefined : 'height'),
+        componentId: 'update-modal-keyboard-avoiding'
+      },
+        React.createElement(View, { style: styles.modalContainer, componentId: 'update-modal-container' },
+          React.createElement(View, { style: [styles.modalContent, { backgroundColor: theme.colors.card }], componentId: 'update-modal-content' },
+            React.createElement(View, { style: styles.modalHeader, componentId: 'update-modal-header' },
+              React.createElement(Text, { style: [styles.modalTitle, { color: theme.colors.textPrimary }], componentId: 'update-modal-title' }, 'Update Score'),
+              React.createElement(TouchableOpacity, {
+                onPress: onClose,
+                style: styles.closeButton,
+                componentId: 'update-modal-close'
+              },
+                React.createElement(MaterialIcons, { name: 'close', size: 24, color: theme.colors.textSecondary })
+              )
+            ),
+            React.createElement(View, { style: styles.formContainer, componentId: 'update-modal-form' },
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'update-participant-label' }, 'Participant: ' + state.selectedParticipant.name),
+              React.createElement(Text, { style: [styles.inputLabel, { color: theme.colors.textPrimary }], componentId: 'update-score-label' }, 'New Score'),
+              React.createElement(TextInput, {
+                style: [styles.textInput, { backgroundColor: theme.colors.background, borderColor: theme.colors.border, color: theme.colors.textPrimary }],
+                value: state.updateScore,
+                onChangeText: state.setUpdateScore,
+                placeholder: 'Enter new score',
+                placeholderTextColor: theme.colors.textSecondary,
+                keyboardType: 'numeric',
+                componentId: 'update-score-input'
+              })
+            ),
+            React.createElement(View, { style: styles.modalActions, componentId: 'update-modal-actions' },
+              React.createElement(TouchableOpacity, {
+                style: [styles.button, styles.cancelButton, { borderColor: theme.colors.border }],
+                onPress: onClose,
+                componentId: 'update-modal-cancel'
+              },
+                React.createElement(Text, { style: [styles.buttonText, { color: theme.colors.textSecondary }] }, 'Cancel')
+              ),
+              React.createElement(TouchableOpacity, {
+                style: [styles.button, styles.primaryButton, { backgroundColor: theme.colors.primary }],
+                onPress: onSubmit,
+                componentId: 'update-modal-submit'
+              },
+                React.createElement(Text, { style: [styles.buttonText, { color: '#FFFFFF' }] }, 'Update Score')
+              )
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:HomeScreen-UpdateModal
+
+  // @section:HomeScreen-FAB @depends:[styles]
+  const renderFloatingActionButton = function(theme, onPress) {
+    return React.createElement(TouchableOpacity, {
+      style: [styles.fab, { backgroundColor: theme.colors.primary }],
+      onPress: onPress,
+      componentId: 'home-fab-add'
+    },
+      React.createElement(MaterialIcons, { name: 'add', size: 28, color: '#FFFFFF' })
+    );
+  };
+  // @end:HomeScreen-FAB
+
+  // @section:HomeScreen @depends:[HomeScreen-state,HomeScreen-handlers,HomeScreen-EventSelector,HomeScreen-CategorySelector,HomeScreen-ParticipantItem,HomeScreen-AddModal,HomeScreen-UpdateModal,HomeScreen-FAB,styles]
+  const HomeScreen = function() {
+    var state = useHomeScreenState();
+    var handlers = homeScreenHandlers;
+    
+    return React.createElement(View, { 
+      style: [styles.container, { backgroundColor: state.theme.colors.background }], 
+      componentId: 'home-screen' 
+    },
+      React.createElement(StatusBar, { 
+        barStyle: state.theme.colors.background === backgroundColor ? 'dark-content' : 'light-content' 
+      }),
+      state.isFirebaseSyncing ? 
+        React.createElement(View, { style: [styles.syncIndicator, { backgroundColor: state.theme.colors.card }], componentId: 'firebase-sync-indicator' },
+          React.createElement(ActivityIndicator, { size: 'small', color: state.theme.colors.primary }),
+          React.createElement(Text, { style: [styles.syncText, { color: state.theme.colors.textSecondary }] }, 'Syncing with Firebase...')
+        ) : null,
+      React.createElement(View, { style: styles.header, componentId: 'home-header' },
+        React.createElement(Text, { 
+          style: [styles.headerTitle, { color: state.theme.colors.textPrimary }], 
+          componentId: 'home-title' 
+        }, 'Event Leaderboard'),
+        React.createElement(Text, { 
+          style: [styles.headerSubtitle, { color: state.theme.colors.textSecondary }], 
+          componentId: 'home-subtitle' 
+        }, state.filteredParticipants.length + ' participants')
+      ),
+      
+      renderCategorySelector(
+        state.categories,
+        state.selectedCategory,
+        function(catId) { state.setSelectedCategory(catId); },
+        state.theme
+      ),
+      
+      renderEventSelector(state.events, state.selectedEventId, function(eventId) { state.setSelectedEventId(eventId); }, state.theme),
+      
+      state.filteredParticipants.length === 0 ? 
+        React.createElement(View, { style: styles.emptyState, componentId: 'home-empty-state' },
+          React.createElement(MaterialIcons, { name: 'emoji-events', size: 64, color: state.theme.colors.textSecondary }),
+          React.createElement(Text, { 
+            style: [styles.emptyStateTitle, { color: state.theme.colors.textPrimary }], 
+            componentId: 'empty-title' 
+          }, 'No Participants Yet'),
+          React.createElement(Text, { 
+            style: [styles.emptyStateSubtitle, { color: state.theme.colors.textSecondary }], 
+            componentId: 'empty-subtitle' 
+          }, 'Add your first participant to start the competition!')
+        ) :
+        React.createElement(ScrollView, {
+          style: styles.scrollView,
+          contentContainerStyle: { paddingBottom: Platform.OS === 'web' ? 90 : 100 },
+          showsVerticalScrollIndicator: false,
+          componentId: 'home-scroll'
+        },
+          state.filteredParticipants.map(function(participant, index) {
+            var fullParticipant = state.participants.find(function(p) { return p.id === participant.id; });
+            return renderParticipantItem(
+              participant, 
+              index, 
+              state.theme,
+              function(p) { handlers.openUpdateModal(state, fullParticipant); },
+              function(id) { handlers.deleteParticipant(state, id); }
+            );
+          })
+        ),
+      
+      renderAddParticipantModal(
+        state.showAddModal,
+        function() { state.setShowAddModal(false); state.setSelectedEventsForParticipant([]); state.setSelectedCategoriesForParticipant([]); },
+        state,
+        function() { handlers.addParticipant(state); },
+        state.theme
+      ),
+      
+      renderUpdateScoreModal(
+        state.showUpdateModal,
+        function() { state.setShowUpdateModal(false); },
+        state,
+        function() { handlers.updateParticipantScore(state); },
+        state.theme
+      ),
+      
+      renderFloatingActionButton(state.theme, function() { state.setShowAddModal(true); })
+    );
+  };
+  // @end:HomeScreen
+
+  // @section:DashboardScreen-state @depends:[ThemeContext,Firebase-utils]
+  const useDashboardScreenState = function() {
+    var themeContext = useTheme();
+    var theme = themeContext.theme;
+    
+    var participantsState = useState([]);
+    var participants = participantsState[0];
+    var setParticipants = participantsState[1];
+    
+    var loadingState = useState(true);
+    var isLoading = loadingState[0];
+    var setIsLoading = loadingState[1];
+    
+    var selectedEventState = useState('event-men');
+    var selectedEvent = selectedEventState[0];
+    var setSelectedEvent = selectedEventState[1];
+    
+    useEffect(function() {
+      var fetchInterval = setInterval(function() {
+        firebaseUtils.fetchParticipants().then(function(data) {
+          if (data) {
+            var participantArray = Array.isArray(data) ? data : [];
+            setParticipants(participantArray);
+          }
+          setIsLoading(false);
+        });
+      }, 2000);
+      
+      firebaseUtils.fetchParticipants().then(function(data) {
+        if (data) {
+          var participantArray = Array.isArray(data) ? data : [];
+          setParticipants(participantArray);
+        }
+        setIsLoading(false);
+      });
+      
+      return function() { clearInterval(fetchInterval); };
+    }, []);
+    
+    return {
+      theme: theme,
+      participants: participants,
+      isLoading: isLoading,
+      selectedEvent: selectedEvent,
+      setSelectedEvent: setSelectedEvent
+    };
+  };
+  // @end:DashboardScreen-state
+
+  // @section:DashboardScreen-rendering @depends:[styles]
+  const renderDashboardLeaderboard = function(participants, selectedEvent, theme) {
+    var categories = [
+      { id: 'discipline-22-open', name: '.22 Open' },
+      { id: 'discipline-22-scope', name: '.22 Scope' },
+      { id: 'discipline-hp-open', name: 'HP Open' },
+      { id: 'discipline-hp-scope', name: 'HP Scope' },
+      { id: 'discipline-long-range', name: 'Long Range' }
+    ];
+    
+    return React.createElement(ScrollView, {
+      style: styles.scrollView,
+      contentContainerStyle: { paddingBottom: Platform.OS === 'web' ? 90 : 100 },
+      componentId: 'dashboard-scroll'
+    },
+      categories.map(function(category) {
+        var categoryParticipants = participants.filter(function(p) {
+          return p.categories && p.categories.indexOf(category.id) > -1 && p.events && p.events.some(function(e) { return e.eventId === selectedEvent; });
+        });
+        
+        var sortedParticipants = categoryParticipants.map(function(p) {
+          var eventData = p.events.find(function(e) { return e.eventId === selectedEvent; });
+          return {
+            id: p.id,
+            name: p.name,
+            score: eventData ? eventData.score : 0
+          };
+        }).sort(function(a, b) { return b.score - a.score; });
+        
+        return React.createElement(View, {
+          key: category.id,
+          style: styles.dashboardSection,
+          componentId: 'dashboard-section-' + category.id
+        },
+          React.createElement(Text, {
+            style: [styles.dashboardSectionTitle, { color: theme.colors.textPrimary }],
+            componentId: 'dashboard-section-title-' + category.id
+          }, category.name),
+          sortedParticipants.length === 0 ?
+            React.createElement(Text, {
+              style: [styles.dashboardEmptyText, { color: theme.colors.textSecondary }],
+              componentId: 'dashboard-empty-' + category.id
+            }, 'No participants in this category') :
+            sortedParticipants.map(function(participant, index) {
+              var isTopThree = index < 3;
+              var medalEmojis = ['🥇', '🥈', '🥉'];
+              var medal = isTopThree ? medalEmojis[index] : '';
+              
+              return React.createElement(View, {
+                key: participant.id,
+                style: [styles.dashboardLeaderboardRow, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+                componentId: 'dashboard-row-' + participant.id
+              },
+                React.createElement(Text, {
+                  style: [styles.dashboardRank, { color: theme.colors.textSecondary }],
+                  componentId: 'dashboard-rank-' + participant.id
+                }, medal || '#' + (index + 1)),
+                React.createElement(Text, {
+                  style: [styles.dashboardName, { color: theme.colors.textPrimary }],
+                  componentId: 'dashboard-name-' + participant.id
+                }, participant.name),
+                React.createElement(Text, {
+                  style: [styles.dashboardScore, { color: theme.colors.primary }],
+                  componentId: 'dashboard-score-' + participant.id
+                }, participant.score.toString())
+              );
+            })
+        );
+      })
+    );
+  };
+  // @end:DashboardScreen-rendering
+
+  // @section:DashboardScreen @depends:[DashboardScreen-state,DashboardScreen-rendering,styles]
+  const DashboardScreen = function() {
+    var state = useDashboardScreenState();
+    var theme = state.theme;
+    var events = [
+      { id: 'event-men', name: 'Men' },
+      { id: 'event-women', name: 'Women' }
+    ];
+    
+    return React.createElement(View, { 
+      style: [styles.container, { backgroundColor: theme.colors.background }], 
+      componentId: 'dashboard-screen' 
+    },
+      React.createElement(StatusBar, { 
+        barStyle: theme.colors.background === backgroundColor ? 'dark-content' : 'light-content' 
+      }),
+      React.createElement(View, { style: styles.header, componentId: 'dashboard-header' },
+        React.createElement(Text, { 
+          style: [styles.headerTitle, { color: theme.colors.textPrimary }], 
+          componentId: 'dashboard-title' 
+        }, '2026 Shooting Match'),
+        React.createElement(Text, { 
+          style: [styles.headerSubtitle, { color: theme.colors.textSecondary }], 
+          componentId: 'dashboard-subtitle' 
+        }, 'Live Leaderboard')
+      ),
+      React.createElement(View, {
+        style: [styles.eventSelectorContainer, { backgroundColor: theme.colors.card, borderBottomColor: theme.colors.border }],
+        componentId: 'dashboard-event-selector'
+      },
+        React.createElement(ScrollView, {
+          horizontal: true,
+          showsHorizontalScrollIndicator: false,
+          style: styles.eventSelectorScroll,
+          componentId: 'dashboard-event-scroll'
+        },
+          events.map(function(event) {
+            var isSelected = event.id === state.selectedEvent;
+            return React.createElement(TouchableOpacity, {
+              key: event.id,
+              style: [
+                styles.eventTab,
+                {
+                  backgroundColor: isSelected ? theme.colors.primary : theme.colors.background,
+                  borderColor: isSelected ? theme.colors.primary : theme.colors.border
+                }
+              ],
+              onPress: function() { state.setSelectedEvent(event.id); },
+              componentId: 'dashboard-event-tab-' + event.id
+            },
+              React.createElement(Text, {
+                style: [
+                  styles.eventTabText,
+                  { color: isSelected ? '#FFFFFF' : theme.colors.textPrimary }
+                ]
+              }, event.name)
+            );
+          })
+        )
+      ),
+      state.isLoading ?
+        React.createElement(View, { style: styles.emptyState, componentId: 'dashboard-loading' },
+          React.createElement(ActivityIndicator, { size: 'large', color: theme.colors.primary }),
+          React.createElement(Text, { 
+            style: [styles.emptyStateSubtitle, { color: theme.colors.textSecondary, marginTop: 16 }], 
+            componentId: 'dashboard-loading-text' 
+          }, 'Loading live data...')
+        ) :
+        renderDashboardLeaderboard(state.participants, state.selectedEvent, theme)
+    );
+  };
+  // @end:DashboardScreen
+
+  // @section:RegistrationScreen-state @depends:[ThemeContext]
+  const useRegistrationScreenState = function() {
+    var themeContext = useTheme();
+    var theme = themeContext.theme;
+    
+    var participants = useState([])[0];
+    var setParticipants = useState([])[1];
+    
+    var events = useState([
+      { id: 'event-men', name: 'Men' },
+      { id: 'event-women', name: 'Women' }
+    ])[0];
+    
+    var categories = useState([
+      {
+        id: 'discipline-22-open',
+        name: '.22 Open',
+        subcategories: [
+          { id: 'discipline-22-open-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-22-scope',
+        name: '.22 Scope',
+        subcategories: [
+          { id: 'discipline-22-scope-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-hp-open',
+        name: 'HP Open',
+        subcategories: [
+          { id: 'discipline-hp-open-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-hp-scope',
+        name: 'HP Scope',
+        subcategories: [
+          { id: 'discipline-hp-scope-std', name: 'Standard' }
+        ]
+      },
+      {
+        id: 'discipline-long-range',
+        name: 'Long Range',
+        subcategories: [
+          { id: 'discipline-long-range-std', name: 'Standard' }
+        ]
+      }
+    ])[0];
+    
+    return {
+      theme: theme,
+      participants: participants,
+      setParticipants: setParticipants,
+      events: events,
+      categories: categories
+    };
+  };
+  // @end:RegistrationScreen-state
+
+  // @section:RegistrationScreen-CategorySelector @depends:[styles]
+  const renderRegistrationCategoryStats = function(categories, participants, events, theme) {
+    return React.createElement(View, {
+      style: styles.sectionContainer,
+      componentId: 'registration-category-stats'
+    },
+      React.createElement(Text, {
+        style: [styles.sectionTitle, { color: theme.colors.textPrimary }],
+        componentId: 'registration-category-stats-title'
+      }, 'Disciplines Overview'),
+      categories.map(function(category) {
+        var categoryParticipants = participants.filter(function(p) { return p.categories && p.categories.indexOf(category.id) > -1; });
+        return React.createElement(View, {
+          key: category.id,
+          style: [styles.categoryStatsCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+          componentId: 'category-stats-' + category.id
+        },
+          React.createElement(View, { style: styles.categoryStatsHeader, componentId: 'category-stats-header-' + category.id },
+            React.createElement(Text, {
+              style: [styles.categoryStatsTitle, { color: theme.colors.textPrimary }],
+              componentId: 'category-stats-name-' + category.id
+            }, category.name),
+            React.createElement(Text, {
+              style: [styles.categoryStatsCount, { color: theme.colors.primary }],
+              componentId: 'category-stats-count-' + category.id
+            }, categoryParticipants.length + ' registered')
+          )
+        );
+      })
+    );
+  };
+  // @end:RegistrationScreen-CategorySelector
+
+  // @section:RegistrationScreen @depends:[RegistrationScreen-state,RegistrationScreen-CategorySelector,styles]
+  const RegistrationScreen = function(props) {
+    var state = useRegistrationScreenState();
+    var theme = state.theme;
+    var participants = useState([])[0];
+    var events = useState([
+      { id: 'event-men', name: 'Men' },
+      { id: 'event-women', name: 'Women' }
+    ])[0];
+    
+    return React.createElement(View, { 
+      style: [styles.container, { backgroundColor: theme.colors.background }], 
+      componentId: 'registration-screen' 
+    },
+      React.createElement(StatusBar, { 
+        barStyle: theme.colors.background === backgroundColor ? 'dark-content' : 'light-content' 
+      }),
+      React.createElement(View, { style: styles.header, componentId: 'registration-header' },
+        React.createElement(Text, { 
+          style: [styles.headerTitle, { color: theme.colors.textPrimary }], 
+          componentId: 'registration-title' 
+        }, 'Event Registration'),
+        React.createElement(Text, { 
+          style: [styles.headerSubtitle, { color: theme.colors.textSecondary }], 
+          componentId: 'registration-subtitle' 
+        }, 'View and manage participant registrations')
+      ),
+      React.createElement(ScrollView, {
+        style: styles.scrollView,
+        contentContainerStyle: { paddingBottom: Platform.OS === 'web' ? 90 : 100 },
+        componentId: 'registration-scroll'
+      },
+        renderRegistrationCategoryStats(state.categories, participants, events, theme),
+        React.createElement(View, { style: styles.sectionContainer, componentId: 'registration-events-section' },
+          React.createElement(Text, { 
+            style: [styles.sectionTitle, { color: theme.colors.textPrimary }], 
+            componentId: 'events-list-title' 
+          }, 'Available Events'),
+          events.map(function(event) {
+            var participantCount = participants.filter(function(p) {
+              return p.events && p.events.some(function(e) { return e.eventId === event.id; });
+            }).length;
+            
+            return React.createElement(View, {
+              key: event.id,
+              style: [styles.eventCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+              componentId: 'event-card-' + event.id
+            },
+              React.createElement(View, { style: styles.eventCardContent, componentId: 'event-card-content-' + event.id },
+                React.createElement(View, { style: styles.eventCardIcon, componentId: 'event-card-icon-' + event.id },
+                  React.createElement(MaterialIcons, { name: 'emoji-events', size: 32, color: theme.colors.primary })
+                ),
+                React.createElement(View, { style: styles.eventCardText, componentId: 'event-card-text-' + event.id },
+                  React.createElement(Text, { 
+                    style: [styles.eventCardTitle, { color: theme.colors.textPrimary }],
+                    componentId: 'event-card-name-' + event.id
+                  }, event.name),
+                  React.createElement(Text, { 
+                    style: [styles.eventCardSubtitle, { color: theme.colors.textSecondary }],
+                    componentId: 'event-card-count-' + event.id
+                  }, participantCount + ' registered')
+                )
+              )
+            );
+          })
+        ),
+        React.createElement(View, { style: styles.sectionContainer, componentId: 'registration-participants-section' },
+          React.createElement(Text, { 
+            style: [styles.sectionTitle, { color: theme.colors.textPrimary }], 
+            componentId: 'participants-list-title' 
+          }, 'Registered Participants'),
+          participants.length === 0 ?
+            React.createElement(View, { style: styles.emptyStateSmall, componentId: 'registration-empty' },
+              React.createElement(Text, { 
+                style: [styles.emptyStateSubtitle, { color: theme.colors.textSecondary }], 
+                componentId: 'registration-empty-text' 
+              }, 'No participants registered yet. Add participants from the leaderboard!')
+            ) :
+            participants.map(function(participant) {
+              var categoryNames = participant.categories && participant.categories.length > 0 ? 'Multi-Discipline' : 'N/A';
+              return React.createElement(View, {
+                key: participant.id,
+                style: [styles.participantRegCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }],
+                componentId: 'participant-reg-card-' + participant.id
+              },
+                React.createElement(Text, { 
+                  style: [styles.participantRegName, { color: theme.colors.textPrimary }],
+                  componentId: 'participant-reg-name-' + participant.id
+                }, participant.name),
+                React.createElement(Text, { 
+                  style: [styles.participantCategory, { color: theme.colors.textSecondary }],
+                  componentId: 'participant-reg-category-' + participant.id
+                }, categoryNames),
+                React.createElement(View, { style: styles.participantRegEvents, componentId: 'participant-reg-events-' + participant.id },
+                  participant.events && participant.events.map(function(eventData) {
+                    var event = events.find(function(e) { return e.id === eventData.eventId; });
+                    return React.createElement(View, {
+                      key: eventData.eventId,
+                      style: [styles.eventBadge, { backgroundColor: theme.colors.primary }],
+                      componentId: 'event-badge-' + participant.id + '-' + eventData.eventId
+                    },
+                      React.createElement(Text, { style: { color: '#FFFFFF', fontSize: 12, fontWeight: '600' } }, event ? event.name : 'Unknown')
+                    );
+                  })
+                )
+              );
+            })
+        )
+      )
+    );
+  };
+  // @end:RegistrationScreen
+
+  // @section:SettingsScreen @depends:[ThemeContext,styles]
+  const SettingsScreen = function() {
+    var themeContext = useTheme();
+    var theme = themeContext.theme;
+    var darkMode = themeContext.darkMode;
+    var toggleDarkMode = themeContext.toggleDarkMode;
+    
+    return React.createElement(View, { 
+      style: [styles.container, { backgroundColor: theme.colors.background }], 
+      componentId: 'settings-screen' 
+    },
+      React.createElement(StatusBar, { 
+        barStyle: theme.colors.background === backgroundColor ? 'dark-content' : 'light-content' 
+      }),
+      React.createElement(View, { style: styles.header, componentId: 'settings-header' },
+        React.createElement(Text, { 
+          style: [styles.headerTitle, { color: theme.colors.textPrimary }], 
+          componentId: 'settings-title' 
+        }, 'Settings')
+      ),
+      React.createElement(ScrollView, {
+        style: styles.scrollView,
+        contentContainerStyle: { paddingBottom: Platform.OS === 'web' ? 90 : 100 },
+        componentId: 'settings-scroll'
+      },
+        React.createElement(View, { 
+          style: [styles.settingCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }], 
+          componentId: 'theme-setting-card' 
+        },
+          React.createElement(View, { style: styles.settingItem, componentId: 'theme-setting-item' },
+            React.createElement(View, { style: styles.settingInfo, componentId: 'theme-setting-info' },
+              React.createElement(MaterialIcons, { name: 'palette', size: 24, color: theme.colors.primary }),
+              React.createElement(View, { style: styles.settingText, componentId: 'theme-setting-text' },
+                React.createElement(Text, { 
+                  style: [styles.settingTitle, { color: theme.colors.textPrimary }], 
+                  componentId: 'theme-setting-title' 
+                }, 'Dark Mode'),
+                React.createElement(Text, { 
+                  style: [styles.settingDescription, { color: theme.colors.textSecondary }], 
+                  componentId: 'theme-setting-description' 
+                }, 'Toggle between light and dark theme')
+              )
+            ),
+            React.createElement(TouchableOpacity, {
+              style: [styles.toggleButton, { backgroundColor: darkMode ? theme.colors.primary : theme.colors.border }],
+              onPress: toggleDarkMode,
+              componentId: 'theme-toggle-button'
+            },
+              React.createElement(View, { 
+                style: [styles.toggleIndicator, { 
+                  backgroundColor: '#FFFFFF',
+                  transform: [{ translateX: darkMode ? 24 : 2 }]
+                }], 
+                componentId: 'theme-toggle-indicator' 
+              })
+            )
+          )
+        ),
+        React.createElement(View, { 
+          style: [styles.settingCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }], 
+          componentId: 'firebase-setting-card' 
+        },
+          React.createElement(View, { style: styles.settingItem, componentId: 'firebase-setting-item' },
+            React.createElement(View, { style: styles.settingInfo, componentId: 'firebase-setting-info' },
+              React.createElement(MaterialIcons, { name: 'cloud-done', size: 24, color: theme.colors.primary }),
+              React.createElement(View, { style: styles.settingText, componentId: 'firebase-setting-text' },
+                React.createElement(Text, { 
+                  style: [styles.settingTitle, { color: theme.colors.textPrimary }], 
+                  componentId: 'firebase-setting-title' 
+                }, 'Cloud Sync'),
+                React.createElement(Text, { 
+                  style: [styles.settingDescription, { color: theme.colors.textSecondary }], 
+                  componentId: 'firebase-setting-description' 
+                }, 'Data syncs to Firebase in real-time')
+              )
+            )
+          )
+        ),
+        React.createElement(View, { 
+          style: [styles.settingCard, { backgroundColor: theme.colors.card, borderColor: theme.colors.border }], 
+          componentId: 'about-setting-card' 
+        },
+          React.createElement(View, { style: styles.settingItem, componentId: 'about-setting-item' },
+            React.createElement(View, { style: styles.settingInfo, componentId: 'about-setting-info' },
+              React.createElement(MaterialIcons, { name: 'info', size: 24, color: theme.colors.primary }),
+              React.createElement(View, { style: styles.settingText, componentId: 'about-setting-text' },
+                React.createElement(Text, { 
+                  style: [styles.settingTitle, { color: theme.colors.textPrimary }], 
+                  componentId: 'about-setting-title' 
+                }, 'About Event Scorer'),
+                React.createElement(Text, { 
+                  style: [styles.settingDescription, { color: theme.colors.textSecondary }], 
+                  componentId: 'about-setting-description' 
+                }, 'Register participants in disciplines and track scores in real-time.')
+              )
+            )
+          )
+        )
+      )
+    );
+  };
+  // @end:SettingsScreen
+
+  // @section:TabNavigator @depends:[HomeScreen,DashboardScreen,RegistrationScreen,SettingsScreen,navigation-setup]
+  const TabNavigator = function() {
+    var themeContext = useTheme();
+    var theme = themeContext.theme;
+    
+    return React.createElement(View, { 
+      style: { flex: 1, width: '100%', height: '100%', overflow: 'hidden' }, 
+      componentId: 'tab-navigator-container' 
+    },
+      React.createElement(Tab.Navigator, {
+        screenOptions: {
+          headerShown: false,
+          tabBarStyle: {
+            position: 'absolute',
+            bottom: 0,
+            backgroundColor: theme.colors.card,
+            borderTopColor: theme.colors.border,
+            borderTopWidth: 1,
+            paddingTop: 8,
+            paddingBottom: Platform.OS === 'ios' ? 24 : 8,
+            height: Platform.OS === 'ios' ? 84 : 64
+          },
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: theme.colors.textSecondary,
+          tabBarLabelStyle: {
+            fontSize: 12,
+            fontWeight: '600'
+          }
+        }
+      },
+        React.createElement(Tab.Screen, {
+          name: 'Leaderboard',
+          component: HomeScreen,
+          options: {
+            tabBarIcon: function(props) {
+              return React.createElement(MaterialIcons, {
+                name: 'emoji-events',
+                size: 24,
+                color: props.color
+              });
+            }
+          }
+        }),
+        React.createElement(Tab.Screen, {
+          name: 'Dashboard',
+          component: DashboardScreen,
+          options: {
+            tabBarIcon: function(props) {
+              return React.createElement(MaterialIcons, {
+                name: 'dashboard',
+                size: 24,
+                color: props.color
+              });
+            }
+          }
+        }),
+        React.createElement(Tab.Screen, {
+          name: 'Participants',
+          component: RegistrationScreen,
+          options: {
+            tabBarIcon: function(props) {
+              return React.createElement(MaterialIcons, {
+                name: 'app-registration',
+                size: 24,
+                color: props.color
+              });
+            }
+          }
+        }),
+        React.createElement(Tab.Screen, {
+          name: 'Settings',
+          component: SettingsScreen,
+          options: {
+            tabBarIcon: function(props) {
+              return React.createElement(MaterialIcons, {
+                name: 'settings',
+                size: 24,
+                color: props.color
+              });
+            }
+          }
+        })
+      )
+    );
+  };
+  // @end:TabNavigator
+
+  // @section:styles @depends:[theme]
+  const styles = StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: backgroundColor
+    },
+    header: {
+      paddingTop: Platform.OS === 'ios' ? 60 : 40,
+      paddingHorizontal: 20,
+      paddingBottom: 20,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E2E8F0'
+    },
+    headerTitle: {
+      fontSize: 28,
+      fontWeight: 'bold',
+      color: textPrimary,
+      marginBottom: 4
+    },
+    headerSubtitle: {
+      fontSize: 16,
+      color: textSecondary
+    },
+    scrollView: {
+      flex: 1,
+      paddingHorizontal: 20
+    },
+    emptyState: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 40
+    },
+    emptyStateSmall: {
+      paddingVertical: 40,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 20
+    },
+    emptyStateTitle: {
+      fontSize: 24,
+      fontWeight: 'bold',
+      marginTop: 16,
+      marginBottom: 8,
+      textAlign: 'center'
+    },
+    emptyStateSubtitle: {
+      fontSize: 16,
+      textAlign: 'center',
+      lineHeight: 24
+    },
+    participantCard: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      marginVertical: 8,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3
+    },
+    participantHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center'
+    },
+    participantInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1
+    },
+    rankContainer: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 16
+    },
+    rankText: {
+      fontSize: 14,
+      fontWeight: 'bold'
+    },
+    nameScoreContainer: {
+      flex: 1
+    },
+    participantName: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 4
+    },
+    participantScore: {
+      fontSize: 16,
+      fontWeight: '600'
+    },
+    participantActions: {
+      flexDirection: 'row',
+      gap: 8
+    },
+    actionButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    eventSelectorContainer: {
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      backgroundColor: cardColor
+    },
+    eventSelectorLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      marginBottom: 8,
+      color: textSecondary
+    },
+    eventSelectorScroll: {
+      flexGrow: 0
+    },
+    eventTab: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      marginRight: 8,
+      borderWidth: 1,
+      backgroundColor: backgroundColor
+    },
+    eventTabText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: textPrimary
+    },
+    categoryFiltersContainer: {
+      paddingHorizontal: 20,
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      backgroundColor: cardColor
+    },
+    categoryFilterLabel: {
+      fontSize: 12,
+      fontWeight: '600',
+      marginBottom: 8,
+      color: textSecondary
+    },
+    categoryFiltersScroll: {
+      flexGrow: 0
+    },
+    categoryTab: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      marginRight: 8,
+      borderWidth: 1,
+      backgroundColor: backgroundColor
+    },
+    categoryTabText: {
+      fontSize: 13,
+      fontWeight: '600',
+      color: textPrimary
+    },
+    categoryButtonsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginVertical: 8
+    },
+    categoryButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      backgroundColor: backgroundColor
+    },
+    categoryButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: textPrimary
+    },
+    categorySelectionContainer: {
+      paddingVertical: 16
+    },
+    categorySelectionTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      marginBottom: 12,
+      marginTop: 8,
+      color: textPrimary
+    },
+    eventCheckbox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      marginVertical: 8,
+      borderWidth: 1,
+      backgroundColor: backgroundColor
+    },
+    checkboxIcon: {
+      width: 20,
+      height: 20,
+      borderRadius: 6,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginRight: 12,
+      backgroundColor: 'transparent'
+    },
+    eventCheckboxText: {
+      fontSize: 16,
+      fontWeight: '500',
+      color: textPrimary
+    },
+    paymentMethodContainer: {
+      flexDirection: 'row',
+      gap: 8,
+      marginVertical: 8
+    },
+    paymentButton: {
+      flex: 1,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: 12,
+      borderWidth: 1,
+      backgroundColor: backgroundColor,
+      alignItems: 'center',
+      justifyContent: 'center'
+    },
+    paymentButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: textPrimary
+    },
+    fab: {
+      position: 'absolute',
+      right: 20,
+      bottom: Platform.OS === 'ios' ? 100 : 80,
+      width: 56,
+      height: 56,
+      borderRadius: 28,
+      justifyContent: 'center',
+      alignItems: 'center',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 8
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 0, 0, 0.5)',
+      justifyContent: 'center',
+      alignItems: 'center'
+    },
+    modalContainer: {
+      width: '100%',
+      maxWidth: 400,
+      margin: 20
+    },
+    modalContent: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      padding: 24,
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.25,
+      shadowRadius: 16,
+      elevation: 8,
+      maxHeight: '80%'
+    },
+    modalHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 20
+    },
+    modalTitle: {
+      fontSize: 20,
+      fontWeight: 'bold'
+    },
+    closeButton: {
+      padding: 4
+    },
+    formContainer: {
+      marginBottom: 24,
+      maxHeight: 500
+    },
+    inputLabel: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 8,
+      marginTop: 16,
+      color: textPrimary
+    },
+    textInput: {
+      borderWidth: 1,
+      borderRadius: 12,
+      padding: 16,
+      fontSize: 16,
+      backgroundColor: backgroundColor
+    },
+    modalActions: {
+      flexDirection: 'row',
+      gap: 12
+    },
+    button: {
+      flex: 1,
+      paddingVertical: 16,
+      paddingHorizontal: 24,
+      borderRadius: 12,
+      alignItems: 'center',
+      justifyContent: 'center'
+    },
+    cancelButton: {
+      borderWidth: 1
+    },
+    primaryButton: {
+      backgroundColor: primaryColor
+    },
+    buttonText: {
+      fontSize: 16,
+      fontWeight: '600'
+    },
+    sectionContainer: {
+      marginVertical: 16
+    },
+    sectionTitle: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginBottom: 12,
+      color: textPrimary
+    },
+    eventCard: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      marginVertical: 8,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3
+    },
+    eventCardContent: {
+      flexDirection: 'row',
+      alignItems: 'center'
+    },
+    eventCardIcon: {
+      marginRight: 16
+    },
+    eventCardText: {
+      flex: 1
+    },
+    eventCardTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      marginBottom: 4,
+      color: textPrimary
+    },
+    eventCardSubtitle: {
+      fontSize: 14,
+      color: textSecondary
+    },
+    categoryStatsCard: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      marginVertical: 8,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3
+    },
+    categoryStatsHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
+      paddingBottom: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: '#E2E8F0'
+    },
+    categoryStatsTitle: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: textPrimary
+    },
+    categoryStatsCount: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: primaryColor
+    },
+    subcategoryStatsRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 8
+    },
+    subcategoryStatsText: {
+      fontSize: 14,
+      color: textSecondary
+    },
+    subcategoryStatsCount: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: textSecondary
+    },
+    participantRegCard: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      marginVertical: 8,
+      padding: 16,
+      borderWidth: 1,
+      borderColor: '#E2E8F0',
+      shadowColor: '#000000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 3
+    },
+    participantRegName: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      marginBottom: 4,
+      color: textPrimary
+    },
+    participantCategory: {
+      fontSize: 13,
+      marginBottom: 12,
+      color: textSecondary
+    },
+    participantRegEvents: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8
+    },
+    eventBadge: {
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 12,
+      backgroundColor: primaryColor
+    },
+    dashboardSection: {
+      marginVertical: 24
+    },
+    dashboardSectionTitle: {
+      fontSize: 20,
+      fontWeight: 'bold',
+      marginBottom: 12,
+      color: textPrimary
+    },
+    dashboardEmptyText: {
+      fontSize: 14,
+      color: textSecondary,
+      textAlign: 'center',
+      paddingVertical: 20
+    },
+    dashboardLeaderboardRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 16,
+      paddingVertical: 16,
+      marginVertical: 6,
+      borderRadius: 12,
+      borderWidth: 1,
+      backgroundColor: cardColor
+    },
+    dashboardRank: {
+      fontSize: 18,
+      fontWeight: 'bold',
+      marginRight: 12,
+      minWidth: 30,
+      textAlign: 'center'
+    },
+    dashboardName: {
+      fontSize: 16,
+      fontWeight: '600',
+      flex: 1,
+      color: textPrimary
+    },
+    dashboardScore: {
+      fontSize: 16,
+      fontWeight: 'bold',
+      color: primaryColor
+    },
+    settingCard: {
+      backgroundColor: cardColor,
+      borderRadius: 16,
+      marginVertical: 8,
+      padding: 20,
+      borderWidth: 1,
+      borderColor: '#E2E8F0'
+    },
+    settingItem: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center'
+    },
+    settingInfo: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      flex: 1
+    },
+    settingText: {
+      marginLeft: 16,
+      flex: 1
+    },
+    settingTitle: {
+      fontSize: 16,
+      fontWeight: '600',
+      marginBottom: 4
+    },
+    settingDescription: {
+      fontSize: 14,
+      lineHeight: 20
+    },
+    toggleButton: {
+      width: 52,
+      height: 32,
+      borderRadius: 16,
+      padding: 2,
+      justifyContent: 'center'
+    },
+    toggleIndicator: {
+      width: 28,
+      height: 28,
+      borderRadius: 14
+    },
+    syncIndicator: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      gap: 8
+    },
+    syncText: {
+      fontSize: 12,
+      fontWeight: '500'
+    }
+  });
+  // @end:styles
+
+  // @section:return @depends:[ThemeProvider,TabNavigator]
+  return React.createElement(ThemeProvider, null,
+    React.createElement(View, { style: { flex: 1, width: '100%', height: '100%' } },
+      React.createElement(StatusBar, { barStyle: 'dark-content' }),
+      React.createElement(TabNavigator)
+    )
+  );
+  // @end:return
+};
+return ComponentFunction;
